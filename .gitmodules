@@ -1,0 +1,4 @@
+
+[submodule "python-sample-vscode-django-tutorial"]
+	path = python-sample-vscode-django-tutorial
+	url = https://github.com/microsoft/python-sample-vscode-django-tutorial.git
