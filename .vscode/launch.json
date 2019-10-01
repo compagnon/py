@@ -1,12 +1,38 @@
 {
     "version": "0.2.0",
     "configurations": [
+
       {
         "name": "Python: Current File",
         "type": "python",
         "request": "launch",
         "program": "${file}",
         "console": "integratedTerminal"
-      }
-    ]
+      },
+      {
+        "name": "Python: Django",
+        "type": "python",
+        "request": "launch",
+        "program": "${workspaceFolder}/django-tutorial/manage.py",
+        "console": "integratedTerminal",
+        "args": [
+            "runserver",
+            "--noreload"
+        ],
+        "django": true
+    },
+    {
+      "name": "Python: Django - VScode ",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/python-sample-vscode-django-tutorial/manage.py",
+      "console": "integratedTerminal",
+      "args": [
+          "runserver",
+          "--noreload"
+      ],
+      "django": true
+  },
+
+  ]
   }
