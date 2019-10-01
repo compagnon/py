@@ -59,4 +59,9 @@ print("The sum of 1 + 2 is {0}".format(1+2))
 class Default(dict):
          def __missing__(self, key):return key
 
-print('{name} was born in {country}'.format_map(Default( ( name='Guido', country='France') ) ))
+
+print('({x}, {y})'.format_map(Default(x='6')))
+print('({x}, {y})'.format_map(Default(y='5')))
+print('({x}, {y})'.format_map(Default(x='6', y='5')))
+
+print('{name} was born in {country}'.format_map(Default(name='Guido',  country='France') ) )
