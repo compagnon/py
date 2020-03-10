@@ -14,6 +14,11 @@ from html.parser import HTMLParser
 ## CLASS DEFINITION
 ## HTML PARSER
 ###############################
+class LeroyMerlinProductListHTMLParser(HTMLParser):
+    pass
+
+class EspaceRevetementProductListHTMLParser(HTMLParser):
+    pass
 
 class BricoflorProductListHTMLParser(HTMLParser):
     """Parser Class pour Bricoflor"""
@@ -46,7 +51,8 @@ class BricoflorProductListHTMLParser(HTMLParser):
 
 def manageIndexURL(instanceParser, URLName):
     """gestion d une URL avec un index allant de 0  à tant qu'une page existe"""
-    i = 0
+    i = 75
+    h_previous = None
     while True:
         url = URLName.format(i)
         print(url)
@@ -62,17 +68,22 @@ def manageIndexURL(instanceParser, URLName):
             print('Reason: ', e.reason)
             break
         else:
-            # everything is fine
+            # la page existe
             html = response.read().decode('utf-8')
+            h_current = hash(html)
+            print(h_current)
+            if(h_current == h_previous):
+                break
             instanceParser.feed(html)
             i = i + 1
+            h_previous = h_current
 
 #Main inputs
 # URL Liste
 
 InputsList = [('IndexURL',BricoflorProductListHTMLParser(),'https://www.bricoflor.fr/sol/moquette.html?p={}'),
-              ('FixedURL','EspaceRevetementProductListHTMLParser','https://www.espacerevetements.com/index.php?id_category=17&controller=category'),
-              ('OffsetURL','LeroyMerlinProductListHTMLParser','https://www.leroymerlin.fr/v3/p/produits/carrelage-parquet-sol-souple/moquette-jonc-de-mer-et-sisal/moquette-de-sol-en-rouleau-l1308217073?resultOffset={0}&resultLimit={99}&resultListShape=MOSAIC&priceStyle=SALEUNIT_PRICE')]
+              ('FixedURL',EspaceRevetementProductListHTMLParser(),'https://www.espacerevetements.com/index.php?id_category=17&controller=category'),
+              ('OffsetURL',LeroyMerlinProductListHTMLParser(),'https://www.leroymerlin.fr/v3/p/produits/carrelage-parquet-sol-souple/moquette-jonc-de-mer-et-sisal/moquette-de-sol-en-rouleau-l1308217073?resultOffset={0}&resultLimit={99}&resultListShape=MOSAIC&priceStyle=SALEUNIT_PRICE')]
 
 
 for configType in InputsList:
