@@ -9,6 +9,8 @@
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from html.parser import HTMLParser
+import collections
+Product = collections.namedtuple('Produit', 'URL Nom Poids Epaisseur Isolation', defaults=(None,) * 5)
 
 ###############################
 ## CLASS DEFINITION
@@ -22,25 +24,38 @@ class EspaceRevetementProductListHTMLParser(HTMLParser):
 
 class BricoflorProductListHTMLParser(HTMLParser):
     """Parser Class pour Bricoflor"""
-    analysed = 0
+    # instance attribute
 
+    __analysed = 0
+    __products = {}
+
+    def get_productsList(self):
+        return self.__products
+
+    productsList = property(get_productsList, fset=None,fdel=None,doc=None)
+    
+    #implements parsing methods
     def handle_starttag(self, tag, attrs):
         # print("Encountered a start tag:", tag)
-        if self.analysed == 0 and tag == 'ul':
+        if self.__analysed == 0 and tag == 'ul':
             #print("Encountered a start tag:", tag, attrs)
             for attribute in attrs:
                     if attribute[0] == 'class' and attribute[1] == 'products-grid row large-products-grid':
-                        self.analysed = self.analysed + 1
-                        print(attribute[1])
-        elif self.analysed > 0 and tag == 'ul':
-            self.analysed = self.analysed + 1
-        elif self.analysed and tag == 'a':
-            print(attrs)
+                        self.__analysed = self.__analysed + 1
+        elif self.__analysed > 0 and tag == 'ul':
+            self.__analysed = self.__analysed + 1
+        elif self.__analysed > 0 and tag == 'a':
+            #print(attrs)
+            if( attrs[0][0] == 'href') and attrs[1][0] == 'title':
+                url = attrs[0][1]
+                name = attrs[1][1]
+                if( self.__products.get(name) == None):
+                    self.__products[name] = Product(URL=url, Nom=name)
 
     def handle_endtag(self, tag):
         # print("Encountered an end tag :", tag)
-        if self.analysed > 0 and tag == 'ul':
-            self.analysed = self.analysed - 1
+        if self.__analysed > 0 and tag == 'ul':
+            self.__analysed = self.__analysed - 1
 
 ###############################
 #    def handle_data(self, data):
@@ -51,8 +66,8 @@ class BricoflorProductListHTMLParser(HTMLParser):
 
 def manageIndexURL(instanceParser, URLName):
     """gestion d une URL avec un index allant de 0  à tant qu'une page existe"""
-    i = 75
-    h_previous = None
+    i = 1
+    productsNumber_previous = 0
     while True:
         url = URLName.format(i)
         print(url)
@@ -70,13 +85,15 @@ def manageIndexURL(instanceParser, URLName):
         else:
             # la page existe
             html = response.read().decode('utf-8')
-            h_current = hash(html)
-            print(h_current)
-            if(h_current == h_previous):
-                break
             instanceParser.feed(html)
-            i = i + 1
-            h_previous = h_current
+
+            productsNumber_current = len(instanceParser.productsList.keys())
+            # si aucun nouveau produit n a ete reconnu => sortir de l analyse
+            if(productsNumber_previous == productsNumber_current):
+                break
+            
+            i = i + 1            
+            productsNumber_previous = productsNumber_current
 
 #Main inputs
 # URL Liste
@@ -90,6 +107,7 @@ for configType in InputsList:
     print (configType[0])
     if configType[0] == 'IndexURL':
         manageIndexURL(configType[1],configType[2])
+        print(configType[1].productsList)
     elif configType[0] == 'FixedURL':
         pass
     elif configType[0] == 'OffsetURL':
