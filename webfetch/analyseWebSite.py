@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from html.parser import HTMLParser
 import collections
-Product = collections.namedtuple('Produit', 'URL Nom Poids Epaisseur Isolation', defaults=(None,) * 5)
+Product = collections.namedtuple('Produit', 'URL Nom Poids Epaisseur Isolation Prix', defaults=(None,) * 6)
 
 ###############################
 ## CLASS DEFINITION
@@ -22,18 +22,86 @@ class LeroyMerlinProductListHTMLParser(HTMLParser):
 class EspaceRevetementProductListHTMLParser(HTMLParser):
     pass
 
-class BricoflorProductListHTMLParser(HTMLParser):
-    """Parser Class pour Bricoflor"""
-    # instance attribute
+class BricoflorProductHTMLParser(HTMLParser):
 
-    __analysed = 0
-    __products = {}
+    def __init__(self):
+        super().__init__()
+        self.__analysed = False
+        self.__datafield = False
+        self.__field = None
+
+    def get_product(self) -> Product:
+        return self.__product
+
+    def set_product(self,product):
+        self.__product = product
+
+    product = property(get_product, fset=set_product,fdel=None,doc=None)
+
+    #implements parsing methods
+    def handle_starttag(self, tag, attrs):
+        #print("Encountered a start tag:", tag)
+        if not(self.__analysed) and tag == 'table':
+            for attribute in attrs:
+                if attribute[0] == 'id' and attribute[1] == 'product-attribute-specs-table':
+                    self.__analysed = True
+        elif self.__analysed:
+            if tag == 'span':
+                for attribute in attrs:
+                    if attribute[0] == 'class' and attribute[1] == 'label':
+                        self.__datafield = True
+        elif tag == 'span' and len(attrs) == 1 and attrs[0][0] == 'class' and attrs[0][1] == 'price':
+            self.__datafield = True
+            self.__field = "Prix"
+        
+    def handle_endtag(self, tag):
+        #print("Encountered an end tag :", tag)
+        if self.__analysed and tag == 'table':
+            self.__analysed = False
+            self.__datafield = False
+    def handle_data(self, data):
+        if self.__datafield:
+            if data == "Épaisseur totale":
+                self.__field = "Epaisseur"
+            elif data == "Poids total":
+                self.__field = "Poids"
+            elif data == "Isolation phonique aux bruits d'impacts":
+                self.__field = "Isolation"
+            d = data.strip()
+            print("Encountered some data  :", d, self.__field)
+            if self.__field != None and d != "" :
+                print(data)
+                #setattr(self.__product, self.__field, d)
+                self.product.Prix = d
+                self.__field = None
+                self.__datafield = False
+
+
+class BricoflorProductListHTMLParser(HTMLParser):
+    """Parser Class pour Bricoflor"""        
+    def __init__(self):
+        super().__init__()
+        self.__analysed = 0
+        self.__productsNumber = 0
+        self.__products = {}
+        self.__productPageParser = BricoflorProductHTMLParser()
+
+    def get_productParser(self):
+        return self.__productPageParser
 
     def get_productsList(self):
         return self.__products
 
     productsList = property(get_productsList, fset=None,fdel=None,doc=None)
+    productParser = property(get_productParser, fset=None,fdel=None,doc=None)
     
+    def feed(self, data) -> int:
+        # si aucun nouveau produit n a ete reconnu => sortir de l analyse
+        previous = self.__productsNumber
+        super().feed(data)
+        print('nb de produits apres analyse:',self.__productsNumber)
+        return self.__productsNumber - previous
+
     #implements parsing methods
     def handle_starttag(self, tag, attrs):
         # print("Encountered a start tag:", tag)
@@ -51,49 +119,48 @@ class BricoflorProductListHTMLParser(HTMLParser):
                 name = attrs[1][1]
                 if( self.__products.get(name) == None):
                     self.__products[name] = Product(URL=url, Nom=name)
+                    self.__productsNumber = self.__productsNumber + 1
 
     def handle_endtag(self, tag):
         # print("Encountered an end tag :", tag)
         if self.__analysed > 0 and tag == 'ul':
             self.__analysed = self.__analysed - 1
 
-###############################
-#    def handle_data(self, data):
-#        print("Encountered some data  :", data)
 
-#    def handle_data(self, data):
-#        print("Encountered some data  :", data)
-
-def manageIndexURL(instanceParser, URLName):
+def webanalyseIndexedURL(instanceParser, URLName):
     """gestion d une URL avec un index allant de 0  à tant qu'une page existe"""
-    i = 1
-    productsNumber_previous = 0
+    i = 76 #debug 0
+    retry = 2 # si 2 pages sont identiques, faire un increment de l index pour le nb de retry
     while True:
         url = URLName.format(i)
         print(url)
-        req = Request(url)
-        try:
-            response = urlopen(req)
-        except HTTPError as e:
-            print('The server couldn\'t fulfill the request.')
-            print('Error code: ', e.code)
-            break
-        except URLError as e:
-            print('We failed to reach a server.')
-            print('Reason: ', e.reason)
-            break
-        else:
-            # la page existe
-            html = response.read().decode('utf-8')
-            instanceParser.feed(html)
-
-            productsNumber_current = len(instanceParser.productsList.keys())
-            # si aucun nouveau produit n a ete reconnu => sortir de l analyse
-            if(productsNumber_previous == productsNumber_current):
+        if not (webanalyseURL(instanceParser, url)):
+            if(retry == 0):
                 break
-            
-            i = i + 1            
-            productsNumber_previous = productsNumber_current
+            else:
+                retry = retry - 1
+        i = i + 1
+
+
+def webanalyseURL(instanceParser, url) -> bool:
+    """gestion d une URL avec un index allant de 0  à tant qu'une page existe"""
+    """ return true if the url is providing data """
+    req = Request(url)
+    try:
+        response = urlopen(req)
+    except HTTPError as e:
+        print('The server couldn\'t fulfill the request.')
+        print('Error code: ', e.code)
+        return False
+    except URLError as e:
+        print('We failed to reach a server.')
+        print('Reason: ', e.reason)
+        return False
+    else:
+        # la page existe, analyser la page avec un Parseur HTML
+        html = response.read().decode('utf-8')
+        return instanceParser.feed(html) != 0
+
 
 #Main inputs
 # URL Liste
@@ -106,8 +173,16 @@ InputsList = [('IndexURL',BricoflorProductListHTMLParser(),'https://www.bricoflo
 for configType in InputsList:
     print (configType[0])
     if configType[0] == 'IndexURL':
-        manageIndexURL(configType[1],configType[2])
-        print(configType[1].productsList)
+        webanalyseIndexedURL(configType[1],configType[2])
+        #print(configType[1].productsList)
+        for productDetail in configType[1].productsList.values():
+            configType[1].productParser.product = productDetail
+            print("Analyse Produit",productDetail)
+            webanalyseURL(configType[1].productParser,productDetail.URL)
+            print("Analyse Produit",productDetail)
+
+
+
     elif configType[0] == 'FixedURL':
         pass
     elif configType[0] == 'OffsetURL':
