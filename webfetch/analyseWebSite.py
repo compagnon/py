@@ -10,18 +10,22 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from html.parser import HTMLParser
 import collections
-Product = collections.namedtuple('Produit', 'URL Nom Poids Epaisseur Isolation Prix', defaults=(None,) * 6)
+Product = collections.namedtuple('Produit', 'URL Nom Poids Epaisseur Couleur Isolation Prix', defaults=(None,) * 7)
 ProductId = collections.namedtuple('IdProduit', 'URL Nom')
 
 ###############################
 ## CLASS DEFINITION
-## HTML PARSER
+## PRODUCTS LIST HTML PARSER for parsing an URL containing a PRODUCT LIST
+## PRODUCT HTML PARSER for parsing an  
 ###############################
 class LeroyMerlinProductListHTMLParser(HTMLParser):
-    pass
+    def __init__(self, productListUrl = None):
+        pass
+    
 
 class EspaceRevetementProductListHTMLParser(HTMLParser):
-    pass
+    def __init__(self, productListUrl = None):
+        pass
 
 class BricoflorProductHTMLParser(HTMLParser):
 
@@ -32,29 +36,17 @@ class BricoflorProductHTMLParser(HTMLParser):
         self.__field = None
         self.__product = dict()
         self.__productTuple = None
-        self.__productIdTuple =None
-
-    def get_product(self) -> Product:
-        return self.__productTuple
 
     def set_productId(self,id):
-        self.__productIdTuple = id       
+        self.__product = id._asdict()
 
-    def get_productId(self):
-        return self.__productIdTuple
+    productId = property(fget=None, fset=set_productId,fdel=None,doc=None)
 
-    product = property(get_product, fset=None,fdel=None,doc=None)
-    productId = property(get_productId, fset=set_productId,fdel=None,doc=None)
-
-    def feed(self, data) -> int:
-        if self.__productIdTuple != None:
-            self.__product = self.__productIdTuple._asdict()
+    def feed(self, data) -> list:
         super().feed(data)
         self.__productTuple = Product(**self.__product)
-        print('Produit:',self.__productTuple)
         self.__product.clear()
-        self.__productIdTuple == None
-        return 1
+        return [self.__productTuple]
         
     #implements parsing methods
     def handle_starttag(self, tag, attrs):
@@ -97,28 +89,35 @@ class BricoflorProductHTMLParser(HTMLParser):
 
 class BricoflorProductListHTMLParser(HTMLParser):
     """Parser Class pour Bricoflor"""
-    def __init__(self):
+    def __init__(self, productListUrl = None):
         super().__init__()
         self.__analysed = 0
         self.__numberOfProducts = 0
-        self.__productsId = {}
-        self.__productPageParser = BricoflorProductHTMLParser()
+        self.__productsIdTotal = {}
+        self.URL = productListUrl
+        self.__productParser = BricoflorProductHTMLParser()
 
     def get_productParser(self):
-        return self.__productPageParser
+        return self.__productParser
 
-    def get_productsIdList(self) -> list:
-        return self.__productsId.values()
+    def get_products(self) -> list:
+        for pid in _webanalyseIndexedURL(self,self.URL):
+            # analyse the product thx to its id
+            self.productParser.set_productId(pid)
+            for p in _webanalyseURL(self.productParser, pid.URL):
+                yield p
 
-    productsIdList = property(get_productsIdList, fset=None,fdel=None,doc=None)
+    productsList = property(get_products, fset=None,fdel=None,doc=None)
     productParser = property(get_productParser, fset=None,fdel=None,doc=None)
     
-    def feed(self, data) -> int:
+    def feed(self, data) -> list:
         # si aucun nouveau produit n a ete reconnu => sortir de l analyse
-        previous = self.__numberOfProducts
+        total = len(self.__productsIdTotal)
+        self.__productsId = []
         super().feed(data)
-        print('nb de produits apres analyse:',self.__numberOfProducts)
-        return self.__numberOfProducts - previous
+        current = len(self.__productsId)
+        print('nb de produits apres analyse:',total, ' (+ ', current , ')')
+        return self.__productsId
 
     #implements parsing methods
     def handle_starttag(self, tag, attrs):
@@ -135,8 +134,10 @@ class BricoflorProductListHTMLParser(HTMLParser):
             if( attrs[0][0] == 'href') and attrs[1][0] == 'title':
                 url = attrs[0][1]
                 name = attrs[1][1]
-                if( self.__productsId.get(name) == None):
-                    self.__productsId[name] = ProductId(URL=url, Nom=name)
+                if( self.__productsIdTotal.get(name) == None):
+                    pid = ProductId(URL=url, Nom=name)
+                    self.__productsId.append(pid)
+                    self.__productsIdTotal[name] = pid
                     self.__numberOfProducts = self.__numberOfProducts + 1
 
     def handle_endtag(self, tag):
@@ -144,70 +145,91 @@ class BricoflorProductListHTMLParser(HTMLParser):
         if self.__analysed > 0 and tag == 'ul':
             self.__analysed = self.__analysed - 1
 
-
-def webanalyseIndexedURL(instanceParser, URLName) -> bool:
-    """ return true if the url is providing new data """
-    """gestion d une URL avec un index allant de 0  à tant qu'une page existe"""
+def _webanalyseIndexedURL(instanceParser, URLName) -> list:
+    """ return yield list if the url is providing new data """
+    """retry some times if no new data is provided"""
     i = 0
     retry = 2 # si 2 pages sont identiques, faire un increment de l index pour le nb de retry
-    newDataFlag = False
     while True:
         url = URLName.format(i)
         print(url)
-        if (webanalyseURL(instanceParser, url)):
-            newDataFlag = True
-        elif(retry == 0):
-            break
+        p = _webanalyseURL(instanceParser, url)
+        if p == None or len(p) == 0:
+            if(retry == 0):
+                break
+            else:
+                retry = retry - 1
         else:
-            retry = retry - 1
-        i = i + 1
-    return newDataFlag
+            i = i + 1
+            for n in p:
+                yield n
+    return None
 
 
-def webanalyseURL(instanceParser, url) -> bool:
-    """ return true if the url is providing new data """
+def _webanalyseURL(instanceParser, url) -> list:
+    """ return list if the url is providing a collection or just one product """
     req = Request(url)
     try:
         response = urlopen(req)
     except HTTPError as e:
         print('The server couldn\'t fulfill the request.')
         print('Error code: ', e.code)
-        return False
+        return None
     except URLError as e:
         print('We failed to reach a server.')
         print('Reason: ', e.reason)
-        return False
+        return None
     else:
         # la page existe, analyser la page avec un Parseur HTML
-        html = response.read().decode('utf-8')
-        return instanceParser.feed(html) != 0
+        html = response.read().decode('utf-8')        
+        return instanceParser.feed(html)
 
 
 #Main inputs
 # URL Liste
 
-InputsList = [('IndexURL',BricoflorProductListHTMLParser(),'https://www.bricoflor.fr/sol/moquette.html?p={}'),
+InputsList2 = [('IndexURL__',BricoflorProductListHTMLParser(),'https://www.bricoflor.fr/sol/moquette.html?p={}'),
               ('FixedURL',EspaceRevetementProductListHTMLParser(),'https://www.espacerevetements.com/index.php?id_category=17&controller=category'),
               ('OffsetURL',LeroyMerlinProductListHTMLParser(),'https://www.leroymerlin.fr/v3/p/produits/carrelage-parquet-sol-souple/moquette-jonc-de-mer-et-sisal/moquette-de-sol-en-rouleau-l1308217073?resultOffset={0}&resultLimit={99}&resultListShape=MOSAIC&priceStyle=SALEUNIT_PRICE')]
 
-productsList = list()
+InputsList = [ BricoflorProductListHTMLParser('https://www.bricoflor.fr/sol/moquette.html?p={}') ]
+#            EspaceRevetementProductListHTMLParser('https://www.espacerevetements.com/index.php?id_category=17&controller=category'),
+#            LeroyMerlinProductListHTMLParser('https://www.leroymerlin.fr/v3/p/produits/carrelage-parquet-sol-souple/moquette-jonc-de-mer-et-sisal/moquette-de-sol-en-rouleau-l1308217073?resultOffset={0}&resultLimit={99}&resultListShape=MOSAIC&priceStyle=SALEUNIT_PRICE')]
 
+
+productsList = list()
+numberOfProduct = 0
+
+
+for parser in InputsList:
+    print (parser)
+    for product in parser.productsList:
+        print(product)
+        numberOfProduct = numberOfProduct + 1
+        productsList.append(product)
+print('NumberOfProduct',numberOfProduct) 
+
+"""
 for configType in InputsList:
     print (configType[0])
     if configType[0] == 'IndexURL':
-        if webanalyseIndexedURL(configType[1],configType[2]):
+        listParser = HTMLParser(configType[1])
+        productParser = HTMLParser(listParser.productParser)
+        if webanalyseIndexedURL(instanceParser=listParser, URLName=configType[2]):
             #print(configType[1].productsIdList)
-            numberOfProduct = 0
-            for productId in configType[1].productsIdList:
-#                productId = ProductId(URL='https://www.bricoflor.fr/vorwerk-safira-8h76.html', Nom='Vorwerk Safira "8H74"')
+            for productId in listParser.productsIdList:
 #                print("Analyse Produit",productId)
                 configType[1].productParser.productId = productId
                 if webanalyseURL(configType[1].productParser,productId.URL) :
                     numberOfProduct = numberOfProduct + 1
+                    productsList.append()
                     print(configType[1].productParser.product)
         print('NnumberOfProduct',numberOfProduct)
 
     elif configType[0] == 'FixedURL':
-        pass
+        if webanalyseFixedURL(configType[1],configType[2]):
+            #print(configType[1].productsIdList)
+        #                productId = ProductId(URL='https://www.espacerevetements.com/index.php?id_category=17&controller=category', Nom='Vorwerk Safira "8H74"')
     elif configType[0] == 'OffsetURL':
         pass
+"""
