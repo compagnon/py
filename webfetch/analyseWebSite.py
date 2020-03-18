@@ -111,7 +111,6 @@ class BricoflorProductListHTMLParser(HTMLParser):
     productParser = property(get_productParser, fset=None,fdel=None,doc=None)
     
     def feed(self, data) -> list:
-        # si aucun nouveau produit n a ete reconnu => sortir de l analyse
         total = len(self.__productsIdTotal)
         self.__productsId = []
         super().feed(data)
@@ -154,13 +153,13 @@ def _webanalyseIndexedURL(instanceParser, URLName) -> list:
         url = URLName.format(i)
         print(url)
         p = _webanalyseURL(instanceParser, url)
+        i = i + 1        
         if p == None or len(p) == 0:
             if(retry == 0):
                 break
             else:
                 retry = retry - 1
         else:
-            i = i + 1
             for n in p:
                 yield n
     return None
