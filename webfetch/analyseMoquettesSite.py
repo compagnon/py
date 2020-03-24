@@ -11,13 +11,14 @@ from urllib.error import URLError, HTTPError
 from html.parser import HTMLParser
 import abc
 import collections
+import time
+
 import productwebanalyse as pwa
 Product = collections.namedtuple(
     'Produit', 'URL Nom Poids Epaisseur Couleur Isolation Prix', defaults=(None,) * 7)
 ProductId = collections.namedtuple('IdProduit', 'URL Nom')
 
-
-class LeroyMerlinProductHTMLParser(pwa.ProductHTMLParser):
+class SaintMacloudProductHTMLParser(pwa.ProductHTMLParser):
     def __init__(self):
         super().__init__()
         self.__analysed = False
@@ -29,7 +30,105 @@ class LeroyMerlinProductHTMLParser(pwa.ProductHTMLParser):
         #print("Encountered a start tag:", tag)
         if not(self.__analysed) and tag == 'div':
             for attribute in attrs:
-                if attribute[0] == 'class' and attribute[1] == '1-mainPrice':
+                if attribute[0] == 'class' and attribute[1] == 'price-box':
+                    self.__analysed = True
+        if not(self.__analysed) and tag == 'ul':
+            for attribute in attrs:
+                if attribute[0] == 'class' and attribute[1] == 'product-detail-specs':
+                    self.__analysed = True                    
+        elif self.__analysed and tag == 'meta':
+            prix = False
+            for attribute in attrs:
+                if attribute[0] == 'itemprop' and attribute[1] == 'price':
+                    prix = True
+                elif attribute[0] == 'content' :
+                    content = attribute[1]
+            if prix:
+                self.set_productData("Prix",content)
+        elif self.__analysed and tag == 'tr':
+            self.__datafield = True           
+
+    def handle_endtag(self, tag):
+        #print("Encountered an end tag :", tag)
+        if self.__analysed and (tag == 'div' or tag == 'table'):
+            self.__analysed = False
+        if self.__datafield and tag == 'tr':
+            self.__datafield = False
+
+    def handle_data(self, data):
+        if self.__datafield:
+            if data == "Epaisseur totale":
+                self.__field = "Epaisseur"
+            elif data == "Poids au m2":
+                self.__field = "Poids"
+            elif data == "Isolation acoustique":
+                self.__field = "Isolation"
+            elif data == "Coloris":
+                self.__field = "Couleur"
+            elif self.__field != None:
+                d = data.strip()
+                #print("Encountered some data  :", d, self.__field)
+                if d != "":
+                    self.set_productData(self.__field,d)
+                    self.__field = None
+                    self.__datafield = False
+
+class SaintMacloudProductListHTMLParser(pwa.ProductsListHTMLParser):
+    def __init__(self, productListUrl=None):
+        super().__init__(productListUrl)
+        self.__article = False
+        self.__analysed = False
+        self.productParser = SaintMacloudProductHTMLParser()
+
+    def _webanalyse(self, URLName) -> list:
+        return self._webanalyseIndexedURL(URLName, 1)
+
+    # implements parsing methods
+    def handle_starttag(self, tag, attrs):
+        # print("Encountered a start tag:", tag)
+        if not self.__article and tag == 'ul':
+            for attribute in attrs:
+                if attribute[0] == 'class' and attribute[1] == 'products-grid':
+                    self.__article = True
+        elif self.__article and tag == 'h2':
+            for attribute in attrs:
+                if attribute[0] == 'class' and attribute[1] == 'product-name':
+                    self.__analysed = True
+        elif self.__analysed and tag == 'a':
+            url = None
+            name = None
+            for attribute in attrs:
+                if(attribute[0] == 'href'):
+                    url = attribute[1]
+                if(attribute[0] == 'title'):
+                    name = attribute[1]
+            p=ProductId(URL=url, Nom=name)
+            self.appendProduct(p)
+            self.__analysed = False
+
+    def handle_endtag(self, tag):
+        # print("Encountered an end tag :", tag)
+        if self.__analysed and tag == 'li':
+            self.__analysed = False
+
+class LeroyMerlinProductHTMLParser(pwa.ProductHTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.__analysed = False
+        self.__datafield = False
+        self.__field = None
+
+    def _webanalyseURL(self, URLName) -> list:
+        # mettre une temporisation pour eviter d etre considere comme un DoS bot
+        time.sleep(1)
+        return super()._webanalyseURL(URLName)
+
+    # implements parsing methods
+    def handle_starttag(self, tag, attrs):
+        #print("Encountered a start tag:", tag)
+        if not(self.__analysed) and ( tag == 'section' or tag == 'div' ):
+            for attribute in attrs:
+                if (attribute[0] == 'class' and attribute[1] == '1-mainPrice') or (attribute[0] == 'data-cerberus' and attribute[1] == 'ELEM_PRIX'):
                     self.__analysed = True
                     break
         elif not(self.__analysed) and tag == 'table':
@@ -40,7 +139,7 @@ class LeroyMerlinProductHTMLParser(pwa.ProductHTMLParser):
         elif self.__analysed:
             if tag == 'span':
                 for attribute in attrs:
-                    if attribute[0] == 'class' and attribute[1] == '-a-priceAmount -fontTitle2 -fontFamilyBold':
+                    if (attribute[0] == 'class' and attribute[1].startswith('-a-priceAmount')) or (attribute[0] == 'data-cerberus' and attribute[1] == 'ELEM_PRIX'):
                         self.__datafield = True
                         self.__field = "Prix"
                         break
@@ -50,27 +149,28 @@ class LeroyMerlinProductHTMLParser(pwa.ProductHTMLParser):
                         self.__datafield = True
                         break
 
-
     def handle_endtag(self, tag):
         #print("Encountered an end tag :", tag)
-        if self.__analysed and tag in ( 'div', 'table'):
-            self.__analysed = False
+        if self.__analysed and self.__datafield and self.__field != None:
             self.__datafield = False
+        if self.__analysed and tag == 'section':
+            self.__analysed = False
 
     def handle_data(self, data):
         if self.__datafield:
-            if data == "Hauteur des fibres (en mm)":
-                self.__field = "Epaisseur"
-            elif data == "Poids total (en g/m²)":
-                self.__field = "Poids"
-            elif data == "Isolation phonique (en dB)":
-                self.__field = "Isolation"
-            elif data == "Couleur":
-                self.__field = "Couleur"
+            if self.__field == None:
+                if data == "Hauteur des fibres (en mm)":
+                    self.__field = "Epaisseur"
+                elif data == "Poids total (en g/m²)":
+                    self.__field = "Poids"
+                elif data == "Isolation phonique (en dB)":
+                    self.__field = "Isolation"
+                elif data == "Couleur":
+                    self.__field = "Couleur"
             else:
                 d = data.strip()
                 #print("Encountered some data  :", d, self.__field)
-                if self.__field != None and d != "":
+                if d != "":
                     self.set_productData(self.__field,d)
                     self.__field = None
                     self.__datafield = False
@@ -80,9 +180,13 @@ class LeroyMerlinProductListHTMLParser(pwa.ProductsListHTMLParser):
         super().__init__(productListUrl)
         self.__article = False
         self.__analysed = False
-        self.productParser = EspaceRevetementProductHTMLParser()
+        self.url = None
+        self.nom = None
+        self.productParser = LeroyMerlinProductHTMLParser()
 
     def _webanalyse(self, URLName) -> list:
+        # mettre une temporisation pour eviter d etre considere comme un DoS bot
+        time.sleep(2)
         return self._webanalyseSlotURL(URLName,0,99)
 
     # implements parsing methods
@@ -100,14 +204,18 @@ class LeroyMerlinProductListHTMLParser(pwa.ProductsListHTMLParser):
         elif self.__analysed and tag == 'a':
             # print(attrs)
             if(attrs[0][0] == 'href'):
-                url = 'https://www.leroymerlin.fr'+ attrs[0][1]
-                self.appendProduct(ProductId(URL=url, Nom=None))                
+                self.url = 'https://www.leroymerlin.fr'+ attrs[0][1]
                     
     def handle_endtag(self, tag):
         # print("Encountered an end tag :", tag)
-        if self.__article and tag == 'div':
+        if self.__analysed and tag == 'h3':
             self.__article = False
             self.__analysed = False
+            self.appendProduct(ProductId(URL=self.url, Nom=self.nom))
+
+    def handle_data(self, data):
+        if self.__analysed:
+            self.nom = data.strip() 
 
 class EspaceRevetementProductHTMLParser(pwa.ProductHTMLParser):
     def __init__(self):
@@ -283,15 +391,15 @@ InputsList = [
 #    'https://www.bricoflor.fr/sol/moquette.html?p={}')]
 #            EspaceRevetementProductListHTMLParser('https://www.espacerevetements.com/index.php?controller=category&id_category=17&page={}'),
             LeroyMerlinProductListHTMLParser('https://www.leroymerlin.fr/v3/p/produits/carrelage-parquet-sol-souple/moquette-jonc-de-mer-et-sisal/moquette-de-sol-en-rouleau-l1308217073?resultOffset={}&resultLimit={}&resultListShape=MOSAIC&priceStyle=SALEUNIT_PRICE')]
-
+#            SaintMacloudProductListHTMLParser('https://www.saint-maclou.com/collection-sols/moquette.html?p={}')]
 productsList = list()
 numberOfProduct = 0
 
 
 for parser in InputsList:
     print(parser)
-    for product in parser.productsList:
-        print(product)
+    for product in parser.productsList:        
+        print(product)        
         numberOfProduct = numberOfProduct + 1
         productsList.append(product)
 print('NumberOfProduct', numberOfProduct)
