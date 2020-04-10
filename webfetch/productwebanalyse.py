@@ -5,9 +5,13 @@ from urllib.error import URLError, HTTPError
 from html.parser import HTMLParser
 import abc
 import collections
-Product = collections.namedtuple(
-    'Produit', 'URL Nom Poids Epaisseur Couleur Isolation Prix', defaults=(None,) * 7)
+
+#Product = collections.namedtuple(
+#    'Produit', 'URL Nom Poids Epaisseur Couleur Isolation Prix', defaults=(None,) * 7)
 ProductId = collections.namedtuple('IdProduit', 'URL Nom')
+
+Product = collections.namedtuple(
+    'Produit', 'URL Nom Contenu', defaults=(None,) * 3)
 
 ###############################
 # CLASS DEFINITION
@@ -46,6 +50,20 @@ class URLHTMLParser(HTMLParser):
     def _webanalyseIndexedURL(self, URLName, begin = 0) -> list:
         return self._webanalyseSlotURL(URLName,begin,1)
 
+    def _webanalyseEndedIndexedURL(self, URLName, URLExtension, begin, end) -> list:
+        """ return yield list if the url is providing new data """
+         # il existe plusieurs pages de produits allant de URLName à URLName?p=2 jusqu'à end
+        p = list()
+        for id in range(begin,end+1) :
+            if( id == begin ):
+                url = URLName
+            else:
+                url = URLName + URLExtension + str(id)
+            
+            print(url)
+            p.extend(self._webanalyseURL(url))
+        return p
+
     def _webanalyseSlotURL(self, URLName, begin = 0 , offset = 1) -> list:
         """ return yield list if the url is providing new data """
         """retry some times if no new data is provided"""
@@ -80,9 +98,15 @@ class ProductHTMLParser(URLHTMLParser):
     productId = property(fget=None, fset=set_productId, fdel=None, doc=None)
 
     def feed(self, data) -> list:
-        super().feed(data)
+        try:
+            super().feed(data)
+        except UnicodeDecodeError as e:
+            print(e)
+        
         productTuple = Product(**self.__product)
         self.__product.clear()
+        #certaines pages html font planter le parseur : https://eshop.asus.com/fr-FR/gaming/ordinateurs-portables/pc-gaming-e-sport/pc-portable-asus-rog-strix3-g-g731gu-ev125t.html
+        super().reset()
         return [productTuple]
 
 
