@@ -5,13 +5,15 @@ from urllib.error import URLError, HTTPError
 from html.parser import HTMLParser
 import abc
 import collections
+from dataclasses import dataclass, asdict
 
 #Product = collections.namedtuple(
 #    'Produit', 'URL Nom Poids Epaisseur Couleur Isolation Prix', defaults=(None,) * 7)
-ProductId = collections.namedtuple('IdProduit', 'URL Nom')
+#ProductId = collections.namedtuple('IdProduit', 'URL Nom')
 
-Product = collections.namedtuple(
-    'Produit', 'URL Nom Contenu', defaults=(None,) * 3)
+#Product = collections.namedtuple(
+#    'Produit', 'URL Nom Contenu Longueur Complet', defaults=(None,) * 5)
+
 
 ###############################
 # CLASS DEFINITION
@@ -22,16 +24,21 @@ Product = collections.namedtuple(
 class URLHTMLParser(HTMLParser):
     __metaclass__ = abc.ABCMeta
 
+    __headers = {
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36',
+        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+        'accept-language':'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+    }
+
     @abc.abstractmethod
     def _webanalyse(self, url) -> list:
         pass 
 
     def _webanalyseURL(self, url) -> list:
         """ return list if the url is providing a collection or just one product """
-        req = Request(url)
-        req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36')
-        req.add_header('accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9')
-        req.add_header('accept-language','fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7')
+        req = Request(url, headers=self.__headers)
         try:
             response = urlopen(req)
         except HTTPError as e:
@@ -88,26 +95,39 @@ class ProductHTMLParser(URLHTMLParser):
     def __init__(self):
         super().__init__()
         self.__product = dict()
+        self.__completed = False
 
-    def set_productId(self, id):
-        self.__product = id._asdict()
+    @abc.abstractmethod
+    def _analyseRaw(self, data):
+        self.__completed = True 
+
+    def setCompleted(self, flag = True):
+        self.__completed = flag
+
+    def set_product(self, id):
+        self.__product = asdict(id)
+
+    def get_product(self) -> dict:
+        return self.__product
 
     def set_productData(self, key, data):
         self.__product[key] = data        
 
-    productId = property(fget=None, fset=set_productId, fdel=None, doc=None)
+    product = property(fget=get_product, fset=set_product, fdel=None, doc=None)
 
-    def feed(self, data) -> list:
+    def feed(self, data) -> dict:
+        self.__completed = False
         try:
             super().feed(data)
-        except UnicodeDecodeError as e:
+        except (AttributeError, IndexError, ValueError, UnicodeDecodeError) as e:
             print(e)
         
-        productTuple = Product(**self.__product)
-        self.__product.clear()
-        #certaines pages html font planter le parseur : https://eshop.asus.com/fr-FR/gaming/ordinateurs-portables/pc-gaming-e-sport/pc-portable-asus-rog-strix3-g-g731gu-ev125t.html
-        super().reset()
-        return [productTuple]
+        if not self.__completed:
+            #analyse du flux stream si besoin
+            self._analyseRaw(data)
+            super().reset()
+
+        return self.__product
 
 
 class ProductsListHTMLParser(URLHTMLParser):
@@ -116,8 +136,11 @@ class ProductsListHTMLParser(URLHTMLParser):
         super().__init__()
         self.__productsId = None
         self.__productsIdTotal = {}
-        self.URL = productListUrl
+        self.__URL = productListUrl
         self.__productParser = None
+    
+    def get_URL(self):
+        return self.__URL
 
     def get_productParser(self):
         return self.__productParser
@@ -133,10 +156,11 @@ class ProductsListHTMLParser(URLHTMLParser):
     def get_products(self) -> list:
         for pid in self._webanalyse(self.URL):
             # analyse the product thx to its id
-            self.productParser.set_productId(pid)
+            self.productParser.set_product(pid)
             for p in self.productParser._webanalyseURL(pid.URL):
                 yield p
 
+    URL  = property(get_URL, fset=None, fdel=None, doc=None)
     productsList = property(get_products, fset=None, fdel=None, doc=None)
     productParser = property(
         get_productParser, fset=set_productParser, fdel=None, doc=None)
