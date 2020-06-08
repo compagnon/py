@@ -1,8 +1,11 @@
 ###############################
+# MULTI THREAD ANALYSE / WEB SCRAPING
 # From an URLs List
 # Use a dedicated HTML Parser
-# extract Products information
-# display tabular data
+# extract all page and product inside products list
+# => looking for  Products information
+# if the HTMLPArser stops for whatever reason and do not meet the final html closing tag,
+# make an analyse of the raw data
 ###############################
 
 # https://www.programiz.com/python-programming/
@@ -14,9 +17,37 @@ import collections
 import time
 
 import productwebanalyse as pwa
-Product = collections.namedtuple(
-    'Produit', 'URL Nom Poids Epaisseur Couleur Isolation Prix', defaults=(None,) * 7)
-ProductId = collections.namedtuple('IdProduit', 'URL Nom')
+from dataclasses import dataclass, asdict
+from typing import Any
+
+import csv
+
+#Product = collections.namedtuple(
+#    'Produit', 'URL Nom Poids Epaisseur Couleur Isolation Prix', defaults=(None,) * 7)
+#ProductId = collections.namedtuple('IdProduit', 'URL Nom')
+
+
+@dataclass
+class ProductId:
+    URL: str
+    Nom: str = None
+
+#ProductId = collections.namedtuple('IdProduit', 'URL Nom')
+
+#Product = collections.namedtuple(
+#    'Produit', 'URL Nom Contenu Longueur Complet', defaults=(None,) * 5)
+@dataclass
+class Product:
+    URL: str
+    Nom: str = None
+    Longueur: int = None
+    Complet: bool = False
+    Prix: str =None
+    Epaisseur: str =None
+    Poids: str =None
+    Isolation: str =None
+    Couleur: str =None
+
 
 class SaintMacloudProductHTMLParser(pwa.ProductHTMLParser):
     def __init__(self):
@@ -72,7 +103,17 @@ class SaintMacloudProductHTMLParser(pwa.ProductHTMLParser):
                     self.set_productData(self.__field,d)
                     self.__field = None
                     self.__datafield = False
+    def feed(self, data) -> list:
+        #optimize : rescan if the lenght is different
+        l = len(data)
+        p = super().get_product()
+        if( l != p.get('Longueur',-1) ):
+            p = super().feed(data)
+            productTuple = Product(**p)
+            p['Longueur'] = l
 
+        productTuple = Product(**p)
+        return [productTuple]
 class SaintMacloudProductListHTMLParser(pwa.ProductsListHTMLParser):
     def __init__(self, productListUrl=None):
         super().__init__(productListUrl)
@@ -120,15 +161,15 @@ class LeroyMerlinProductHTMLParser(pwa.ProductHTMLParser):
 
     def _webanalyseURL(self, URLName) -> list:
         # mettre une temporisation pour eviter d etre considere comme un DoS bot
-        time.sleep(1)
+        time.sleep(5)
         return super()._webanalyseURL(URLName)
 
     # implements parsing methods
     def handle_starttag(self, tag, attrs):
         #print("Encountered a start tag:", tag)
-        if not(self.__analysed) and ( tag == 'section' or tag == 'div' ):
+        if not(self.__analysed) and ( tag == 'section' ):
             for attribute in attrs:
-                if (attribute[0] == 'class' and attribute[1] == '1-mainPrice') or (attribute[0] == 'data-cerberus' and attribute[1] == 'ELEM_PRIX'):
+                if (attribute[0] == 'class' and attribute[1].startswith('1-price')):
                     self.__analysed = True
                     break
         elif not(self.__analysed) and tag == 'table':
@@ -139,19 +180,19 @@ class LeroyMerlinProductHTMLParser(pwa.ProductHTMLParser):
         elif self.__analysed:
             if tag == 'span':
                 for attribute in attrs:
-                    if (attribute[0] == 'class' and attribute[1].startswith('-a-priceAmount')) or (attribute[0] == 'data-cerberus' and attribute[1] == 'ELEM_PRIX'):
+                    if (attribute[0] == 'class' and attribute[1].startswith('-a-priceAmount')):
                         self.__datafield = True
                         self.__field = "Prix"
                         break
-            elif tag == 'td':
+            elif tag == 'th':
                 for attribute in attrs:
                     if attribute[0] == 'class' and attribute[1] == 'a-attrName':
                         self.__datafield = True
-                        break
+                        break                  
 
     def handle_endtag(self, tag):
         #print("Encountered an end tag :", tag)
-        if self.__analysed and self.__datafield and self.__field != None:
+        if self.__analysed and self.__datafield and self.__field == None:
             self.__datafield = False
         if self.__analysed and tag == 'section':
             self.__analysed = False
@@ -174,6 +215,17 @@ class LeroyMerlinProductHTMLParser(pwa.ProductHTMLParser):
                     self.set_productData(self.__field,d)
                     self.__field = None
                     self.__datafield = False
+    def feed(self, data) -> list:
+        #optimize : rescan if the lenght is different
+        l = len(data)
+        p = super().get_product()
+        if( l != p.get('Longueur',-1) ):
+            p = super().feed(data)
+            productTuple = Product(**p)
+            p['Longueur'] = l
+
+        productTuple = Product(**p)
+        return [productTuple]
 
 class LeroyMerlinProductListHTMLParser(pwa.ProductsListHTMLParser):
     def __init__(self, productListUrl=None):
@@ -186,20 +238,18 @@ class LeroyMerlinProductListHTMLParser(pwa.ProductsListHTMLParser):
 
     def _webanalyse(self, URLName) -> list:
         # mettre une temporisation pour eviter d etre considere comme un DoS bot
-        time.sleep(2)
-        return self._webanalyseSlotURL(URLName,0,99)
+        time.sleep(10)
+        return self._webanalyseIndexedURL(URLName,2)
 
     # implements parsing methods
     def handle_starttag(self, tag, attrs):
         # print("Encountered a start tag:", tag)
-        if not self.__article and tag == 'div':
+        if not self.__article and tag == 'article':
             #print("Encountered a start tag:", tag, attrs)
+            self.__article = True
+        elif self.__article and tag == 'div':
             for attribute in attrs:
-                if attribute[0] == 'class' and attribute[1] == 'prd':
-                    self.__article = True
-        elif self.__article and tag == 'h3':
-            for attribute in attrs:
-                if attribute[0] == 'class' and attribute[1] == '':
+                if attribute[0] == 'class' and attribute[1] == 'kl-blade':
                     self.__analysed = True
         elif self.__analysed and tag == 'a':
             # print(attrs)
@@ -208,7 +258,7 @@ class LeroyMerlinProductListHTMLParser(pwa.ProductsListHTMLParser):
                     
     def handle_endtag(self, tag):
         # print("Encountered an end tag :", tag)
-        if self.__analysed and tag == 'h3':
+        if self.__analysed and tag == 'a':
             self.__article = False
             self.__analysed = False
             self.appendProduct(ProductId(URL=self.url, Nom=self.nom))
@@ -260,6 +310,17 @@ class EspaceRevetementProductHTMLParser(pwa.ProductHTMLParser):
                     self.set_productData(self.__field,d)
                     self.__field = None
                     self.__datafield = False
+    def feed(self, data) -> list:
+        #optimize : rescan if the lenght is different
+        l = len(data)
+        p = super().get_product()
+        if( l != p.get('Longueur',-1) ):
+            p = super().feed(data)
+            productTuple = Product(**p)
+            p['Longueur'] = l
+
+        productTuple = Product(**p)
+        return [productTuple]
 
 class EspaceRevetementProductListHTMLParser(pwa.ProductsListHTMLParser):
     def __init__(self, productListUrl=None):
@@ -302,6 +363,7 @@ class BricoflorProductHTMLParser(pwa.ProductHTMLParser):
         self.__datafield = False
         self.__field = None
 
+    # return a list of Products
     def _webanalyse(self, URLName) -> list:
         return self._webanalyseIndexedURL(URLName)
 
@@ -345,6 +407,18 @@ class BricoflorProductHTMLParser(pwa.ProductHTMLParser):
                     self.__field = None
                     self.__datafield = False
 
+    def feed(self, data) -> list:
+        #optimize : rescan if the lenght is different
+        l = len(data)
+        p = super().get_product()
+        if( l != p.get('Longueur',-1) ):
+            p = super().feed(data)
+            productTuple = Product(**p)
+            p['Longueur'] = l
+
+        productTuple = Product(**p)
+        return [productTuple]
+
 class BricoflorProductListHTMLParser(pwa.ProductsListHTMLParser):
     """Parser Class pour Bricoflor"""
     def __init__(self, productListUrl=None):
@@ -387,19 +461,22 @@ InputsList2 = [('IndexURL__', BricoflorProductListHTMLParser(), 'https://www.bri
                ('OffsetURL', LeroyMerlinProductListHTMLParser(), 'https://www.leroymerlin.fr/v3/p/produits/carrelage-parquet-sol-souple/moquette-jonc-de-mer-et-sisal/moquette-de-sol-en-rouleau-l1308217073?resultOffset={0}&resultLimit={99}&resultListShape=MOSAIC&priceStyle=SALEUNIT_PRICE')]
 
 InputsList = [
-#    BricoflorProductListHTMLParser(
-#    'https://www.bricoflor.fr/sol/moquette.html?p={}')]
-#            EspaceRevetementProductListHTMLParser('https://www.espacerevetements.com/index.php?controller=category&id_category=17&page={}'),
-            LeroyMerlinProductListHTMLParser('https://www.leroymerlin.fr/v3/p/produits/carrelage-parquet-sol-souple/moquette-jonc-de-mer-et-sisal/moquette-de-sol-en-rouleau-l1308217073?resultOffset={}&resultLimit={}&resultListShape=MOSAIC&priceStyle=SALEUNIT_PRICE')]
+#    BricoflorProductListHTMLParser('https://www.bricoflor.fr/sol/moquette.html?p={}')]
+#            EspaceRevetementProductListHTMLParser('https://www.espacerevetements.com/index.php?controller=category&id_category=17&page={}')]
+            LeroyMerlinProductListHTMLParser('https://www.leroymerlin.fr/v3/p/produits/carrelage-parquet-sol-souple/moquette-jonc-de-mer-et-sisal/moquette-de-sol-en-rouleau-l1308217073?page={}')]
 #            SaintMacloudProductListHTMLParser('https://www.saint-maclou.com/collection-sols/moquette.html?p={}')]
 productsList = list()
 numberOfProduct = 0
 
-
-for parser in InputsList:
-    print(parser)
-    for product in parser.productsList:        
-        print(product)        
-        numberOfProduct = numberOfProduct + 1
-        productsList.append(product)
-print('NumberOfProduct', numberOfProduct)
+with open('products.csv', mode='w') as products_file:
+    products_writer= csv.writer(products_file, )
+    products_writer = csv.DictWriter(products_file, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL, fieldnames=['URL','Nom','Contenu','Longueur','Complet','Prix','Epaisseur','Poids','Isolation','Couleur'])
+    products_writer.writeheader()
+    for parser in InputsList:
+        print(parser)
+        for product in parser.productsList:        
+            print(product)
+            products_writer.writerow(asdict(product))
+            numberOfProduct = numberOfProduct + 1
+            productsList.append(product)
+    print('NumberOfProduct', numberOfProduct)

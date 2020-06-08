@@ -13,6 +13,22 @@ from dataclasses import dataclass, asdict
 
 #Product = collections.namedtuple(
 #    'Produit', 'URL Nom Contenu Longueur Complet', defaults=(None,) * 5)
+@dataclass
+class ProductId:
+    URL: str
+    Nom: str = None
+
+#ProductId = collections.namedtuple('IdProduit', 'URL Nom')
+
+#Product = collections.namedtuple(
+#    'Produit', 'URL Nom Contenu Longueur Complet', defaults=(None,) * 5)
+@dataclass
+class Product:
+    URL: str
+    Nom: str = None
+    Contenu: str = None
+    Longueur: int = None
+    Parsed: bool = False
 
 
 ###############################
@@ -66,7 +82,7 @@ class URLHTMLParser(HTMLParser):
                 url = URLName
             else:
                 url = URLName + URLExtension + str(id)
-            
+            #print trace / not debug
             print(url)
             p.extend(self._webanalyseURL(url))
         return p
@@ -117,13 +133,13 @@ class ProductHTMLParser(URLHTMLParser):
 
     def feed(self, data) -> dict:
         self.__completed = False
-        try:
+        try:            
             super().feed(data)
         except (AttributeError, IndexError, ValueError, UnicodeDecodeError) as e:
             print(e)
         
         if not self.__completed:
-            #analyse du flux stream si besoin
+            #stream flow analysis if needed
             self._analyseRaw(data)
             super().reset()
 
@@ -154,6 +170,7 @@ class ProductsListHTMLParser(URLHTMLParser):
             self.__productsIdTotal[pid.URL] = pid
 
     def get_products(self) -> list:
+        # for each product id (url)
         for pid in self._webanalyse(self.URL):
             # analyse the product thx to its id
             self.productParser.set_product(pid)
