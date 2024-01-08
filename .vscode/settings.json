@@ -1,6 +1,11 @@
 {
-    "python.pythonPath": "C:\\Programs\\Python\\Python38\\python.exe",
+    "python.pythonPath": "C:\\Programs\\Python\\Python310\\python.exe",
     "python.linting.pylintEnabled": true,
     "python.linting.banditEnabled": false,
-    "python.linting.enabled": true
+    "python.linting.enabled": true,
+    "python.pipArgs": [
+    "--trusted-host",
+    "pypi.python.org",
+        "--trusted-host",
+        "files.pythonhosted.org"]
 }
