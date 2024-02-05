@@ -1,3 +1,5 @@
+# https://huggingface.co/docs/datasets/installation
+
 # load a dataset builder and inspect a dataset’s attributes without committing to downloading it:
 
 from datasets import load_dataset_builder, load_dataset
